@@ -11,6 +11,8 @@ import argparse
 import models
 import models_deit
 from timm.models import create_model
+import pickle
+from tqdm import tqdm
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -72,20 +74,20 @@ def main():
         bn_eps=None,
         checkpoint_path='')
 
-        traindir = args.data_url + 'train/'
-        valdir = args.data_url + 'val/'
+        # traindir = args.data_url + 'train/'
+        valdir = args.data_url + 'valid/'
 
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
 
-        train_set = datasets.ImageFolder(traindir, transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize ]))
-        train_set_index = torch.randperm(len(train_set))
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers=32, pin_memory=False,
-                sampler=torch.utils.data.sampler.SubsetRandomSampler(train_set_index[-50000:]))
+        # train_set = datasets.ImageFolder(traindir, transforms.Compose([
+        #         transforms.RandomResizedCrop(224),
+        #         transforms.RandomHorizontalFlip(),
+        #         transforms.ToTensor(),
+        #         normalize ]))
+        # train_set_index = torch.randperm(len(train_set))
+        # train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers=32, pin_memory=False,
+        #         sampler=torch.utils.data.sampler.SubsetRandomSampler(train_set_index[-50000:]))
 
         val_loader = torch.utils.data.DataLoader(
             datasets.ImageFolder(valdir, transforms.Compose([
@@ -104,11 +106,16 @@ def main():
 
         print('generate logits on test samples...')
         test_logits, test_targets, anytime_classification = generate_logits(model, val_loader)
+        print(test_logits.shape, test_targets.shape)
+        with open(f'output/{args.model}.p', 'wb') as f:
+            pickle.dump((test_logits, test_targets, anytime_classification), f)
+            f.close()
         
         if args.eval_mode == 2:
-            print('generate logits on training samples...')
-            dynamic_threshold = torch.zeros([59, 3])
-            train_logits, train_targets, _ = generate_logits(model, train_loader)
+            raise NotImplementedError('The training set of ImageNet still needs to be downloaded.')
+            # print('generate logits on training samples...')
+            # dynamic_threshold = torch.zeros([59, 3])
+            # train_logits, train_targets, _ = generate_logits(model, train_loader)
 
         for p in range(1, 60):
 
@@ -119,7 +126,8 @@ def main():
             probs /= probs.sum()
 
             if args.eval_mode == 2:
-                dynamic_threshold[p-1] = dynamic_find_threshold(train_logits, train_targets, probs)
+                raise NotImplementedError('The training set of ImageNet still needs to be downloaded.')
+                # dynamic_threshold[p-1] = dynamic_find_threshold(train_logits, train_targets, probs)
             
             acc_step, flops_step = dynamic_evaluate(test_logits, test_targets, flops, dynamic_threshold[p-1])
             
@@ -142,7 +150,7 @@ def generate_logits(model, dataloader):
     top1 = [AverageMeter() for _ in range(3)]
     model.eval()
 
-    for i, (x, target) in enumerate(dataloader):
+    for i, (x, target) in tqdm(enumerate(dataloader)):
 
         logits_temp = torch.zeros(3, x.size(0), 1000)
 

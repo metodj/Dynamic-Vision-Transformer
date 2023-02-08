@@ -77,3 +77,20 @@ def modal_probs_average(_preds: Dict[int, torch.Tensor], _probs: torch.Tensor, l
     for i in range(10000):
         preds.append(_probs[:, i, _preds[layer - 1][i]])
     return torch.stack(preds, dim=1).mean(axis=1)
+
+
+def get_scale_probs(probs_name_arr, probs_arr, T_arr, targets, C, L):
+
+    def scale_probs(_probs, _targets, T):
+        probs_scaled = _probs ** T
+        probs_scaled = probs_scaled / np.repeat(probs_scaled.sum(axis=2)[:, :, np.newaxis], C, axis=2)
+        preds_scaled = {i: torch.argmax(probs_scaled, dim=2)[i, :] for i in range(L)}
+        acc_scaled = [(_targets == preds_scaled[i]).sum() / len(_targets) for i in range(L)]
+        return probs_scaled, preds_scaled, acc_scaled
+
+    scaled_dict = {x: {} for x in probs_name_arr}
+    for probs_name, probs_arr in zip(probs_name_arr, probs_arr):
+        for T in T_arr:
+            scaled_dict[probs_name][T] = scale_probs(probs_arr, targets, T)
+    
+    return scaled_dict

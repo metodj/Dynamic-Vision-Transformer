@@ -1,18 +1,46 @@
 import torch
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional, List
 
 
-def modal_probs_decreasing(_preds: Dict[int, torch.Tensor], _probs: torch.Tensor, layer: int, verbose: bool = False, N: int = 10000) -> Dict[float, float]:
+def probs_decrease(probs: np.array) -> np.array:
+    L = len(probs)
+    diffs = []
+    for i in range(L):
+        for j in range(i + 1, L):
+            diffs.append(probs[j] - probs[i])
+    return np.array(diffs)
+
+
+def modal_probs_decreasing(
+    _preds: Dict[int, torch.Tensor],
+    _probs: torch.Tensor,
+    layer: Optional[int] = None,
+    verbose: bool = False,
+    N: int = 10000,
+    diffs_type: str = "consecutive",
+    thresholds: List[float] = [-0.01, -0.05, -0.1, -0.2, -0.5],
+) -> Dict[float, float]:
     """
     nr. of decreasing modal probability vectors in anytime-prediction regime
+
+    function can also be used for grount truth probabilities, set layer=None
     """
-    nr_non_decreasing = {-0.01: 0, -0.05: 0, -0.1: 0, -0.2: 0, -0.5: 0}
-    diffs = []
+    nr_non_decreasing = {threshold: 0 for threshold in thresholds}
+    # diffs = []
     for i in range(N):
-        probs_i = _probs[:, i, _preds[layer - 1][i]].cpu().numpy()
-        diffs_i = np.diff(probs_i)
-        diffs.append(diffs_i.min())
+        if layer is None:
+            c = _preds[i]
+        else:
+            c = _preds[layer - 1][i]
+        probs_i = _probs[:, i, c].cpu().numpy()
+        if diffs_type == "consecutive":
+            diffs_i = np.diff(probs_i)
+        elif diffs_type == "all":
+            diffs_i = probs_decrease(probs_i)
+        else:
+            raise ValueError()
+        # diffs.append(diffs_i.min())
         for threshold in nr_non_decreasing.keys():
             if np.all(diffs_i >= threshold):
                 nr_non_decreasing[threshold] += 1
@@ -21,7 +49,9 @@ def modal_probs_decreasing(_preds: Dict[int, torch.Tensor], _probs: torch.Tensor
                     print(i, probs_i)
     # print(nr_non_decreasing)
     # print(np.mean(diffs))
-    nr_decreasing = {-1. * k: ((N - v) / N) * 100 for k, v in nr_non_decreasing.items()}
+    nr_decreasing = {
+        -1.0 * k: ((N - v) / N) * 100 for k, v in nr_non_decreasing.items()
+    }
     return nr_decreasing
 
 

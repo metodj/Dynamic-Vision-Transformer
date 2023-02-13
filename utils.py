@@ -37,4 +37,3 @@ def accuracy(output, target, topk=(1,)):
     correct_k = correct[:1].view(-1).float()
 
     return correct_k
-

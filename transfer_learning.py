@@ -13,6 +13,7 @@ import torch.backends.cudnn as cudnn
 
 import torchvision
 import torchvision.transforms as transforms
+from torchsummary import summary
 
 import os
 import argparse
@@ -131,6 +132,11 @@ net = create_model(
     checkpoint_path=args.initial_checkpoint,
     img_size=args.img_size)
 
+# print net params
+print('net params:')
+print(net)
+
+
 
 if args.transfer_learning:
     print('transfer learning, load t2t-vit pretrained model')
@@ -144,11 +150,12 @@ if device == 'cuda':
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load('./checkpoint/ckpt.pth')
+    assert os.path.isdir(f'checkpoint_{args.dataset}_{args.model}'), 'Error: no checkpoint directory found!'
+    checkpoint = torch.load(f'./checkpoint_{args.dataset}_{args.model}/ckpt_0.01_0.0005_95.66.pth')
     net.load_state_dict(checkpoint['net'])
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch']
+    print(f'best_acc:{best_acc}, start_epoch:{start_epoch}')
 
 criterion = nn.CrossEntropyLoss()
 
@@ -157,13 +164,13 @@ if args.transfer_learning:
     print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
     parameters = [{'params': net.module.normal_token.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
                   {'params': net.module.normal_token.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
-                 {'params': net.module.normal_token.head.parameters()}]
-    parameters = [{'params': net.module.less_token.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
+                  {'params': net.module.normal_token.head.parameters()},
+                  {'params': net.module.less_token.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
                   {'params': net.module.less_token.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
-                 {'params': net.module.less_token.head.parameters()}]
-    parameters = [{'params': net.module.less_less_token.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
+                  {'params': net.module.less_token.head.parameters()},
+                  {'params': net.module.less_less_token.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
                   {'params': net.module.less_less_token.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
-                 {'params': net.module.less_less_token.head.parameters()}]
+                  {'params': net.module.less_less_token.head.parameters()}]
 else:
     parameters = net.parameters()
 
@@ -235,13 +242,12 @@ wandb_kwargs = {
         'project': 'anytime-poe-dvit',
         'entity': 'metodj',
         'notes': '',
-        'mode': 'online',
+        'mode': 'offline',
         'config': vars(args)
     }
-for epoch in range(start_epoch, start_epoch+60):
-
-    with wandb.init(**wandb_kwargs) as run:
-        train_loss = train(epoch)
-        test_loss = test(epoch)
-        scheduler.step()
-        run.log({'train_loss': train_loss, 'test_loss': test_loss})
+with wandb.init(**wandb_kwargs) as run:
+    for epoch in range(start_epoch, start_epoch+60):
+            train_loss = train(epoch)
+            test_loss = test(epoch)
+            scheduler.step()
+            run.log({'train_loss': train_loss, 'test_loss': test_loss})

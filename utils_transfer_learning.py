@@ -55,8 +55,15 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
         if num_classes != 1000:
             # completely discard fully connected for all other differences between pretrained and created model
             head_params = [x for x in state_dict.keys() if 'head' in x]
+            head_params_sizes = [(x, y.shape) for x, y in state_dict.items() if 'head' in x]
+            print(head_params)
+            print(head_params_sizes)
             for k in head_params:
                 del state_dict[k]
+        
+        print('PARAMS')
+        for k, v in list(state_dict.items()):
+            print(k, v.shape)
 
         # print()
         # if del_posemb==True:

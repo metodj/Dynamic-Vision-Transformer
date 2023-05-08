@@ -35,6 +35,9 @@ from timm.utils import ApexScaler, NativeScaler
 import warnings
 warnings.filterwarnings('ignore')
 
+import wandb
+os.environ["WANDB_API_KEY"] = "e31842f98007cca7e04fd98359ea9bdadda29073"
+
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
 
@@ -554,48 +557,59 @@ def main():
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
 
-    try:  # train the model
-        for epoch in range(start_epoch, num_epochs):
-            if args.distributed:
-                loader_train.sampler.set_epoch(epoch)
+    wandb_kwargs = {
+        'project': 'anytime-poe-dvit',
+        'entity': 'metodj',
+        'notes': '',
+        'mode': 'online',
+        'config': vars(args)
+    }
+    with wandb.init(**wandb_kwargs) as run:
 
-            train_metrics = train_epoch(
-                epoch, model, loader_train, optimizer, train_loss_fn, args,
-                lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
-                amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+        try:  # train the model
+            for epoch in range(start_epoch, num_epochs):
+                if args.distributed:
+                    loader_train.sampler.set_epoch(epoch)
 
-            if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                if args.local_rank == 0:
-                    _logger.info("Distributing BatchNorm running means and vars")
-                distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
+                train_metrics = train_epoch(
+                    epoch, model, loader_train, optimizer, train_loss_fn, args,
+                    lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                
+                run.log(train_metrics)
 
-            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-
-            if model_ema is not None and not args.model_ema_force_cpu:
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                    distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
-                ema_eval_metrics = validate(
-                    model_ema.ema, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
-                eval_metrics = ema_eval_metrics
+                    if args.local_rank == 0:
+                        _logger.info("Distributing BatchNorm running means and vars")
+                    distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
-            if lr_scheduler is not None:
-                # step LR for next epoch
-                lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
+                eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
-            if args.local_rank == 0:
-                update_summary(
-                    epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
-                    write_header=best_metric is None)
+                if model_ema is not None and not args.model_ema_force_cpu:
+                    if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
+                        distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
+                    ema_eval_metrics = validate(
+                        model_ema.ema, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
+                    eval_metrics = ema_eval_metrics
 
-            if saver is not None:
-                # save proper checkpoint with eval metric
-                save_metric = eval_metrics[eval_metric]
-                best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
+                if lr_scheduler is not None:
+                    # step LR for next epoch
+                    lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
-    except KeyboardInterrupt:
-        pass
-    if best_metric is not None:
-        _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
+                if args.local_rank == 0:
+                    update_summary(
+                        epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
+                        write_header=best_metric is None)
+
+                if saver is not None:
+                    # save proper checkpoint with eval metric
+                    save_metric = eval_metrics[eval_metric]
+                    best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
+
+        except KeyboardInterrupt:
+            pass
+        if best_metric is not None:
+            _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
 
 
 def train_epoch(

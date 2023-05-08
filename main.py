@@ -693,6 +693,23 @@ def train_epoch(
                         lr=lr,
                         data_time=data_time_m))
 
+                print(
+                    'Train: {} [{:>4d}/{} ({:>3.0f}%)]  '
+                    'Loss: {loss.val:>9.6f} ({loss.avg:>6.4f})  '
+                    'Time: {batch_time.val:.3f}s, {rate:>7.2f}/s  '
+                    '({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
+                    'LR: {lr:.3e}  '
+                    'Data: {data_time.val:.3f} ({data_time.avg:.3f})'.format(
+                        epoch,
+                        batch_idx, len(loader),
+                        100. * batch_idx / last_idx,
+                        loss=losses_m,
+                        batch_time=batch_time_m,
+                        rate=input.size(0) * args.world_size / batch_time_m.val,
+                        rate_avg=input.size(0) * args.world_size / batch_time_m.avg,
+                        lr=lr,
+                        data_time=data_time_m))
+
                 if args.save_images and output_dir:
                     torchvision.utils.save_image(
                         input,
@@ -775,6 +792,17 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
             if args.local_rank == 0 and (last_batch or batch_idx % args.log_interval == 0):
                 log_name = 'Test' + log_suffix
                 _logger.info(
+                    '{0}: [{1:>4d}/{2}]  '
+                    'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})  '
+                    'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
+                    'Exit1 Acc@1: {acc_less_less_token.val:>7.4f} ({acc_less_less_token.avg:>7.4f})  '
+                    'Exit2 Acc@1: {acc_less_token.val:>7.4f} ({acc_less_token.avg:>7.4f})  '
+                    'Exit3 Acc@1: {top1.val:>7.4f} ({top1.avg:>7.4f})  '
+                    'Exit3 Acc@5: {top5.val:>7.4f} ({top5.avg:>7.4f})  '.format(
+                        log_name, batch_idx, last_idx, batch_time=batch_time_m,
+                        loss=losses_m, top1=top1_m, top5=top5_m,
+                        acc_less_token=acc_less_token_m, acc_less_less_token=acc_less_less_token_m))
+                print(
                     '{0}: [{1:>4d}/{2}]  '
                     'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})  '
                     'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
